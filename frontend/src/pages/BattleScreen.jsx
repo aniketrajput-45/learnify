@@ -6,7 +6,8 @@ import confetti from 'canvas-confetti';
 import { levels } from '../data/levels';
 import { validateAnswer } from '../utils/validation';
 import { useStore } from '../store/useStore';
-import { Play, ArrowLeft, BookOpen, X, Heart } from 'lucide-react';
+import { Play, ArrowLeft, BookOpen, X, Heart, Sparkles } from 'lucide-react';
+import { getSenseiHint } from '../utils/gemini';
 
 export default function BattleScreen() {
   const { levelId } = useParams();
@@ -22,6 +23,23 @@ export default function BattleScreen() {
   const [code, setCode] = useState('');
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  
+  // Sensei AI State
+  const [senseiHint, setSenseiHint] = useState(null);
+  const [isSenseiLoading, setIsSenseiLoading] = useState(false);
+  const [floatingTexts, setFloatingTexts] = useState([]); // [{ id, text, x, y, color }]
+  const [activeEffect, setActiveEffect] = useState(null); // 'slash', 'impact', etc.
+
+  const triggerFloatingText = (text, type = 'damage') => {
+    const id = Math.random();
+    const color = type === 'damage' ? 'text-red-500' : type === 'heal' ? 'text-green-500' : 'text-yellow-500';
+    const xOffset = Math.random() * 40 - 20; // Random jitter
+    
+    setFloatingTexts(prev => [...prev, { id, text, x: xOffset, color }]);
+    setTimeout(() => {
+      setFloatingTexts(prev => prev.filter(t => t.id !== id));
+    }, 1500);
+  };
   
   // Game State
   const maxHp = level?.hp || 500;
@@ -54,6 +72,11 @@ export default function BattleScreen() {
 
       if (result.success) {
         setActionState('attacking');
+        setActiveEffect('slash');
+        triggerFloatingText(`-${Math.round(damagePerHit)} HP`, 'damage');
+        
+        setTimeout(() => setActiveEffect(null), 600);
+        
         setTimeout(() => {
           setMonsterHp(prev => {
             const newHp = Math.max(0, prev - damagePerHit);
@@ -71,6 +94,7 @@ export default function BattleScreen() {
         }, 800);
       } else {
         setActionState('hurt');
+        triggerFloatingText(`-20 HP`, 'damage');
         setTimeout(() => {
           setPlayerHp(prev => {
             const newPlayerHp = Math.max(0, prev - 20);
@@ -124,6 +148,15 @@ export default function BattleScreen() {
     setPlayerHp(maxPlayerHp);
     setActionState('idle');
     setOutput(null);
+    setSenseiHint(null);
+  };
+
+  const handleAskSensei = async () => {
+    if (isSenseiLoading) return;
+    setIsSenseiLoading(true);
+    const hint = await getSenseiHint(question, code, output?.logs || []);
+    setSenseiHint(hint);
+    setIsSenseiLoading(false);
   };
 
   if (!level || !question) return null;
@@ -216,6 +249,39 @@ export default function BattleScreen() {
           Question {currentIndex + 1} / 5
         </div>
 
+        {/* Floating Combat Text Layer */}
+        <div className="absolute inset-0 pointer-events-none z-30">
+          <AnimatePresence>
+            {floatingTexts.map(t => (
+              <motion.div
+                key={t.id}
+                initial={{ opacity: 1, y: 150, x: t.x + (t.text.includes('Hero') ? 100 : 400) }}
+                animate={{ opacity: 0, y: 50 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 1.5, ease: "easeOut" }}
+                className={`absolute text-2xl font-black ${t.color} drop-shadow-[0_2px_2px_rgba(0,0,0,0.8)]`}
+              >
+                {t.text}
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+
+        {/* Slash Visual Effect */}
+        <AnimatePresence>
+          {activeEffect === 'slash' && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.5, rotate: -45, x: 400, y: 150 }}
+              animate={{ opacity: [0, 1, 0], scale: [0.5, 1.5, 1.2], x: 400, y: 150 }}
+              exit={{ opacity: 0 }}
+              className="absolute z-40 pointer-events-none"
+            >
+              <div className="relative w-64 h-2 bg-white blur-sm rounded-full shadow-[0_0_20px_#fff]" />
+              <div className="absolute top-0 left-0 w-64 h-1 bg-cyan-400 blur-[2px] rounded-full" />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div className="relative z-10 h-full flex justify-between items-end px-16 pb-8 max-w-6xl mx-auto">
           {/* Avatar */}
           <div className="flex flex-col items-center w-64">
@@ -233,23 +299,55 @@ export default function BattleScreen() {
 
             <motion.div
               animate={
-                actionState === 'attacking' ? { x: [0, 150, 0], scale: [1, 1.1, 1] } :
-                actionState === 'hurt' ? { x: [-10, 10, -10, 10, 0], filter: ['brightness(1)', 'brightness(0.5)', 'brightness(1)'] } :
-                actionState === 'defeat' ? { rotate: 90, y: 50, opacity: 0.5 } :
-                { y: [0, -5, 0] }
+                actionState === 'attacking' ? { 
+                  x: [0, 250, 0], 
+                  skewX: [0, -20, 0],
+                  scale: [1, 1.2, 1],
+                } :
+                actionState === 'hurt' ? { 
+                  x: [0, -20, 10, -5, 0], 
+                  y: [0, -20, 0],
+                  rotate: [0, -10, 5, 0],
+                  filter: ['brightness(1)', 'brightness(0.5) sepia(1) saturate(5) hue-rotate(-50deg)', 'brightness(1)'] 
+                } :
+                actionState === 'defeat' ? { rotate: 90, y: 100, opacity: 0, scale: 0.5 } :
+                { 
+                  y: [0, -8, 0],
+                  scale: [1, 1.02, 1],
+                  rotate: [-1, 1, -1]
+                }
               }
-              transition={actionState === 'idle' ? { repeat: Infinity, duration: 2 } : { duration: 0.5 }}
+              transition={
+                actionState === 'idle' ? { repeat: Infinity, duration: 3, ease: "easeInOut" } : 
+                actionState === 'attacking' ? { duration: 0.6, ease: "backIn" } :
+                { duration: 0.5 }
+              }
               className="relative z-20"
             >
-              <div className="w-32 h-32 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(79,70,229,0.3)] dark:shadow-[0_0_30px_rgba(79,70,229,0.5)] overflow-hidden border-2 border-indigo-500">
-                <img src="https://api.dicebear.com/7.x/avataaars/svg?seed=Hero&backgroundColor=transparent" alt="Avatar" className="w-full h-full object-cover" />
+              <div className="w-32 h-32 bg-indigo-100 dark:bg-indigo-900/50 rounded-full flex items-center justify-center shadow-[0_0_50px_rgba(79,70,229,0.4)] overflow-hidden border-4 border-indigo-500 relative">
+                <img src="https://api.dicebear.com/7.x/pixel-art/svg?seed=Hero&backgroundColor=transparent" alt="Avatar" className="w-full h-full object-cover scale-150" />
+                {actionState === 'hurt' && (
+                  <motion.div 
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: [0, 0.8, 0] }}
+                    className="absolute inset-0 bg-red-600"
+                  />
+                )}
               </div>
+              
+              {/* Ground Shadow */}
+              <motion.div 
+                animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.1, 0.2] }}
+                transition={{ repeat: Infinity, duration: 3 }}
+                className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-20 h-4 bg-black/40 blur-md rounded-[100%]"
+              />
+
               {actionState === 'attacking' && (
                 <motion.div 
                   initial={{ opacity: 1, scale: 0.5, x: 50 }}
-                  animate={{ opacity: 0, scale: 3, x: 300 }}
-                  transition={{ duration: 0.5 }}
-                  className="absolute top-1/2 left-full w-12 h-12 bg-cyan-400 rounded-full blur-md -mt-6"
+                  animate={{ opacity: 0, scale: 4, x: 400 }}
+                  transition={{ duration: 0.4 }}
+                  className="absolute top-1/2 left-full w-20 h-20 bg-cyan-400 rounded-full blur-xl -mt-10"
                 />
               )}
             </motion.div>
@@ -272,14 +370,38 @@ export default function BattleScreen() {
                 <motion.div
                   exit={{ opacity: 0, scale: 0, rotate: 180 }}
                   animate={
-                    actionState === 'attacking' ? { x: [0, 10, -10, 10, 0], filter: ['brightness(1)', 'brightness(2)', 'brightness(1)'] } :
-                    { scale: [1, 1.02, 1] }
+                    actionState === 'attacking' ? { 
+                      x: [0, -20, 20, -10, 10, 0], 
+                      filter: ['brightness(1)', 'brightness(2) contrast(1.5)', 'brightness(1)'] 
+                    } :
+                    { 
+                      scale: [1, 1.05, 1],
+                      y: [0, 10, 0]
+                    }
                   }
-                  transition={actionState === 'idle' ? { repeat: Infinity, duration: 3 } : { duration: 0.5 }}
+                  transition={
+                    actionState === 'idle' ? { repeat: Infinity, duration: 4, ease: "easeInOut" } : 
+                    { duration: 0.4 }
+                  }
+                  className="relative"
                 >
-                  <div className="w-40 h-40 bg-red-100 dark:bg-red-900/20 rounded-xl flex items-center justify-center shadow-[0_0_40px_rgba(220,38,38,0.2)] dark:shadow-[0_0_40px_rgba(220,38,38,0.3)] overflow-hidden border-2 border-red-500/50 dark:border-red-900/50">
+                  <div className="w-40 h-40 bg-red-100 dark:bg-red-900/20 rounded-xl flex items-center justify-center shadow-[0_0_50px_rgba(220,38,38,0.3)] overflow-hidden border-2 border-red-500/50 dark:border-red-900/50 relative">
                     <img src={`https://api.dicebear.com/7.x/bottts/svg?seed=${level.monster}&backgroundColor=transparent`} alt="Monster" className="w-full h-full object-cover scale-110" />
+                    {actionState === 'attacking' && (
+                      <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: [0, 0.6, 0] }}
+                        className="absolute inset-0 bg-white"
+                      />
+                    )}
                   </div>
+
+                  {/* Ground Shadow */}
+                  <motion.div 
+                    animate={{ scale: [1, 0.8, 1], opacity: [0.3, 0.4, 0.3] }}
+                    transition={{ repeat: Infinity, duration: 4 }}
+                    className="absolute -bottom-6 left-1/2 -translate-x-1/2 w-24 h-6 bg-black/50 blur-lg rounded-[100%]"
+                  />
                 </motion.div>
               )}
             </AnimatePresence>
@@ -336,6 +458,20 @@ export default function BattleScreen() {
               <option value="cpp">C++</option>
             </select>
 
+          <div className="flex items-center gap-3">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleAskSensei}
+              disabled={isSenseiLoading || actionState === 'victory'}
+              className={`flex items-center px-4 py-2 rounded font-bold transition-all border ${
+                isSenseiLoading ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-300 dark:border-gray-700 cursor-wait' : 'bg-white dark:bg-[#1a1a1a] text-yellow-600 dark:text-yellow-400 border-yellow-500/50 hover:border-yellow-500 shadow-sm'
+              }`}
+            >
+              <Sparkles className={`w-4 h-4 mr-2 ${isSenseiLoading ? 'animate-pulse' : ''}`} />
+              {isSenseiLoading ? 'Consulting...' : 'Ask Sensei'}
+            </motion.button>
+
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
@@ -354,9 +490,35 @@ export default function BattleScreen() {
               )}
             </motion.button>
           </div>
-          
-          <div className="flex-grow">
-            <Editor
+        </div>
+        
+        <div className="flex-grow relative">
+          <AnimatePresence>
+            {senseiHint && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="absolute top-4 left-4 right-4 z-30 bg-yellow-50 dark:bg-[#2a2620] border-2 border-yellow-500/50 p-4 rounded-lg shadow-2xl flex items-start gap-4"
+              >
+                <div className="bg-yellow-500 p-2 rounded-full text-black flex-shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="flex-grow">
+                  <h4 className="text-yellow-800 dark:text-yellow-400 font-bold text-sm mb-1 uppercase tracking-wider">Sensei's Guidance</h4>
+                  <p className="text-gray-800 dark:text-gray-200 text-sm leading-relaxed italic">"{senseiHint}"</p>
+                </div>
+                <button 
+                  onClick={() => setSenseiHint(null)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <Editor
               height="100%"
               language={language === 'c' || language === 'cpp' ? 'cpp' : language}
               theme="vs-dark"
