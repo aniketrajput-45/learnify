@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { Sword, User, LogOut, Trophy, Sun, Moon } from 'lucide-react';
+import { Sword, User, LogOut, Trophy, Sun, Moon, Book } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 export default function Navbar() {
@@ -68,6 +68,9 @@ export default function Navbar() {
               <>
                 <Link to="/levels" className="text-sm font-bold text-gray-600 dark:text-gray-300 hover:text-yellow-500 dark:hover:text-yellow-400 transition-colors uppercase tracking-wider">
                   Arena
+                </Link>
+                <Link to="/library" className="text-sm font-bold text-gray-600 dark:text-gray-300 hover:text-yellow-500 dark:hover:text-yellow-400 transition-colors uppercase tracking-wider flex items-center gap-1">
+                  <Book className="w-4 h-4" /> Library
                 </Link>
                 <Link to="/leaderboard" className="text-sm font-bold text-gray-600 dark:text-gray-300 hover:text-yellow-500 dark:hover:text-yellow-400 transition-colors uppercase tracking-wider flex items-center gap-1">
                   <Trophy className="w-4 h-4" /> Leaderboard

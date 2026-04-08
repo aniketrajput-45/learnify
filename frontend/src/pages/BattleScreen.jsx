@@ -7,7 +7,8 @@ import { levels } from '../data/levels';
 import { validateAnswer } from '../utils/validation';
 import { useStore } from '../store/useStore';
 import { Play, ArrowLeft, BookOpen, X, Heart, Sparkles } from 'lucide-react';
-import { getSenseiHint } from '../utils/gemini';
+import { getSenseiHint, validateCodeWithAI } from '../utils/gemini';
+import DataVisualizer from '../components/DataVisualizer';
 
 export default function BattleScreen() {
   const { levelId } = useParams();
@@ -23,6 +24,7 @@ export default function BattleScreen() {
   const [code, setCode] = useState('');
   const [output, setOutput] = useState(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [visualizerIndices, setVisualizerIndices] = useState({ active: -1, compare: -1 });
   
   // Sensei AI State
   const [senseiHint, setSenseiHint] = useState(null);
@@ -54,6 +56,22 @@ export default function BattleScreen() {
   const [showTutorial, setShowTutorial] = useState(currentIndex === 0);
 
   useEffect(() => {
+    let interval;
+    if (isRunning) {
+      interval = setInterval(() => {
+        const inputLen = question?.testCases[0]?.input[0]?.length || 5;
+        setVisualizerIndices({
+          active: Math.floor(Math.random() * inputLen),
+          compare: Math.floor(Math.random() * inputLen)
+        });
+      }, 150);
+    } else {
+      setVisualizerIndices({ active: -1, compare: -1 });
+    }
+    return () => clearInterval(interval);
+  }, [isRunning, question]);
+
+  useEffect(() => {
     if (!level) navigate('/levels');
     if (currentIndex >= 5) {
       handleLevelComplete();
@@ -63,51 +81,63 @@ export default function BattleScreen() {
     }
   }, [language, currentIndex, level, navigate]);
 
-  const handleRun = () => {
+  const handleRun = async () => {
     setIsRunning(true);
-    setTimeout(() => {
-      const result = validateAnswer(code, language, question.testCases);
-      setOutput(result);
-      setIsRunning(false);
+    
+    // Create a promise that resolves after 2 seconds (to show visualizer)
+    const timerPromise = new Promise(resolve => setTimeout(resolve, 2000));
+    
+    let result;
+    if (language === 'javascript') {
+      result = validateAnswer(code, language, question.testCases);
+    } else {
+      // Use AI to validate non-JS code
+      result = await validateCodeWithAI(question, code, language);
+    }
 
-      if (result.success) {
-        setActionState('attacking');
-        setActiveEffect('slash');
-        triggerFloatingText(`-${Math.round(damagePerHit)} HP`, 'damage');
-        
-        setTimeout(() => setActiveEffect(null), 600);
-        
-        setTimeout(() => {
-          setMonsterHp(prev => {
-            const newHp = Math.max(0, prev - damagePerHit);
-            
-            if (currentIndex + 1 >= 5 || newHp <= 0) {
-              handleLevelComplete();
-            } else {
-              setCurrentIndex(c => c + 1);
-              updateProgress(level.id, currentIndex + 1);
-            }
-            
-            return newHp;
-          });
-          setActionState('idle');
-        }, 800);
-      } else {
-        setActionState('hurt');
-        triggerFloatingText(`-20 HP`, 'damage');
-        setTimeout(() => {
-          setPlayerHp(prev => {
-            const newPlayerHp = Math.max(0, prev - 20);
-            if (newPlayerHp <= 0) {
-              setActionState('defeat');
-            } else {
-              setActionState('idle');
-            }
-            return newPlayerHp;
-          });
-        }, 500);
-      }
-    }, 800);
+    // Wait for the visualizer timer to finish if it hasn't already
+    await timerPromise;
+    
+    setOutput(result);
+    setIsRunning(false);
+
+    if (result.success) {
+      setActionState('attacking');
+      setActiveEffect('slash');
+      triggerFloatingText(`-${Math.round(damagePerHit)} HP`, 'damage');
+      
+      setTimeout(() => setActiveEffect(null), 600);
+      
+      setTimeout(() => {
+        setMonsterHp(prev => {
+          const newHp = Math.max(0, prev - damagePerHit);
+          
+          if (currentIndex + 1 >= 5 || newHp <= 0) {
+            handleLevelComplete();
+          } else {
+            setCurrentIndex(c => c + 1);
+            updateProgress(level.id, currentIndex + 1);
+          }
+          
+          return newHp;
+        });
+        setActionState('idle');
+      }, 800);
+    } else {
+      setActionState('hurt');
+      triggerFloatingText(`-20 HP`, 'damage');
+      setTimeout(() => {
+        setPlayerHp(prev => {
+          const newPlayerHp = Math.max(0, prev - 20);
+          if (newPlayerHp <= 0) {
+            setActionState('defeat');
+          } else {
+            setActionState('idle');
+          }
+          return newPlayerHp;
+        });
+      }, 500);
+    }
   };
 
   const handleLevelComplete = () => {
@@ -425,6 +455,16 @@ export default function BattleScreen() {
           <h2 className="text-2xl font-bold mb-2 text-cyan-600 dark:text-cyan-400">{question.title}</h2>
           <p className="text-gray-700 dark:text-gray-300 mb-6 leading-relaxed">{question.description}</p>
           
+          {/* Visualizer Section */}
+          <div className="mb-8">
+            <DataVisualizer 
+              type={level.id === 2 ? 'string' : 'array'} 
+              data={question.testCases[0].input[0]}
+              activeIndex={visualizerIndices.active}
+              compareIndex={visualizerIndices.compare}
+            />
+          </div>
+
           <div className="bg-gray-50 dark:bg-[#2a2a2a] p-4 rounded mb-6 font-mono text-sm border border-gray-200 dark:border-gray-700">
             <h3 className="text-gray-500 mb-2 uppercase text-xs font-bold tracking-wider">Examples</h3>
             <pre className="whitespace-pre-wrap text-pink-600 dark:text-pink-400">{question.examples}</pre>
