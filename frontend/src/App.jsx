@@ -9,6 +9,7 @@ import ProfilePage from './pages/ProfilePage';
 import SkillTreePage from './pages/SkillTreePage';
 import BattleScreen from './pages/BattleScreen';
 import LeaderboardPage from './pages/LeaderboardPage';
+import LibraryPage from './pages/LibraryPage';
 
 // Components
 import Navbar from './components/Navbar';
@@ -66,6 +67,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <LeaderboardPage />
+              </ProtectedRoute>
+            } 
+          />
+          <Route 
+            path="/library" 
+            element={
+              <ProtectedRoute>
+                <LibraryPage />
               </ProtectedRoute>
             } 
           />

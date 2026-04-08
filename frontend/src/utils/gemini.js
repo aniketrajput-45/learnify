@@ -47,3 +47,58 @@ export const getSenseiHint = async (question, userCode, logs) => {
     return "The mystical energy is fading... (Error connecting to AI). Check your console for details!";
   }
 };
+
+export const validateCodeWithAI = async (question, userCode, language) => {
+  if (!import.meta.env.VITE_GEMINI_API_KEY) {
+    return { 
+      success: false, 
+      logs: ["⚠️ Sensei is offline (API Key missing).", "Please add VITE_GEMINI_API_KEY to your .env to enable real-time C/Python/C++ validation."] 
+    };
+  }
+
+  try {
+    const GenAIModule = await import("@google/genai");
+    const GoogleGenerativeAI = GenAIModule.GoogleGenerativeAI || 
+                             (GenAIModule.default ? GenAIModule.default.GoogleGenerativeAI : GenAIModule.default);
+
+    const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const prompt = `
+      You are the "AlgoQuest Judge", an expert competitive programmer.
+      Task: Rigorously evaluate if the user's code correctly solves the DSA problem.
+      
+      Problem: ${question.title}
+      Description: ${question.description}
+      Example: ${question.examples}
+      Language: ${language}
+      
+      User's Submitted Code:
+      \`\`\`${language}
+      ${userCode}
+      \`\`\`
+      
+      Criteria for Success:
+      1. The code must be logically correct for the problem described.
+      2. It must handle the logic shown in the examples.
+      3. It must NOT be a placeholder (like just a return statement without logic, or empty function).
+      4. It must be valid syntax for ${language}.
+      
+      Respond ONLY with a JSON object:
+      {
+        "success": boolean,
+        "logs": string[] (3 specific points about why it passed or failed, be critical)
+      }
+    `;
+
+    const result = await model.generateContent(prompt);
+    const responseText = await result.response.text();
+    
+    // Clean potential markdown around JSON
+    const cleanJson = responseText.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanJson);
+  } catch (error) {
+    console.error("Gemini Validation Error:", error);
+    return { success: false, logs: ["The validation crystal is cracked... (AI Error)"] };
+  }
+};
